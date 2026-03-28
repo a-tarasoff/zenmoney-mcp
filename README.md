@@ -13,7 +13,7 @@ MCP server for [ZenMoney](https://zenmoney.ru) — access your personal finance 
 | `list_transactions` | List and filter recent transactions |
 | `add_expense` | Add an expense transaction |
 | `add_income` | Add an income transaction |
-| `add_transfer` | Transfer money between accounts |
+| `add_transfer` | Transfer money between accounts (including cross-currency) |
 | `suggest_category` | Get auto-suggested category for a payee |
 
 ## Prerequisites
@@ -88,6 +88,7 @@ Once configured, start a conversation and ask your AI client to:
 2. **Browse** — "Show me my accounts", "List my categories"
 3. **Query** — "Show expenses for the last 7 days", "How much did I spend on groceries?"
 4. **Add transactions** — "Add a 500 RUB expense for coffee today"
+5. **Transfer** — "Transfer 1000 USD from Checking to Euro Card, received 920 EUR"
 
 ## Contributing
 

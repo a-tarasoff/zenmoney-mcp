@@ -261,15 +261,17 @@ export function registerTransactionTools(
 
   server.tool(
     "add_transfer",
-    "Transfer money between two accounts in ZenMoney.",
+    "Transfer money between two accounts in ZenMoney. For cross-currency transfers, specify both outcome_amount (source) and income_amount (destination). For same-currency transfers, just use outcome_amount (or amount as alias).",
     {
       from_account: z.string().describe("Source account name or UUID"),
       to_account: z.string().describe("Destination account name or UUID"),
-      amount: z.number().positive().describe("Transfer amount"),
+      amount: z.number().positive().optional().describe("Transfer amount (alias for outcome_amount, for same-currency transfers)"),
+      outcome_amount: z.number().positive().optional().describe("Amount debited from source account (in source account currency)"),
+      income_amount: z.number().positive().optional().describe("Amount credited to destination account (in destination account currency). Required for cross-currency transfers."),
       date: z.string().describe("Transaction date in YYYY-MM-DD format"),
       comment: z.string().optional().describe("Transfer comment"),
     },
-    async ({ from_account, to_account, amount, date, comment }) => {
+    async ({ from_account, to_account, amount, outcome_amount, income_amount, date, comment }) => {
       if (!state.isSynced) {
         return {
           content: [
@@ -318,10 +320,40 @@ export function registerTransactionTools(
         };
       }
 
+      const resolvedOutcome = outcome_amount ?? amount;
+      if (!resolvedOutcome) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Either 'amount' or 'outcome_amount' must be provided.",
+            },
+          ],
+          isError: true,
+        };
+      }
+
       const outcomeInstrument =
         fromAcc.instrument ?? user.currency ?? 1;
       const incomeInstrument =
         toAcc.instrument ?? user.currency ?? 1;
+      const isCrossCurrency = outcomeInstrument !== incomeInstrument;
+
+      if (isCrossCurrency && !income_amount) {
+        const fromInstr = state.getInstrument(outcomeInstrument);
+        const toInstr = state.getInstrument(incomeInstrument);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Cross-currency transfer: source account is ${fromInstr?.shortTitle ?? "?"} and destination is ${toInstr?.shortTitle ?? "?"}. Please provide income_amount (the amount in ${toInstr?.shortTitle ?? "destination currency"}).`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      const resolvedIncome = income_amount ?? resolvedOutcome;
       const now = Math.floor(Date.now() / 1000);
 
       const transaction = {
@@ -334,11 +366,11 @@ export function registerTransactionTools(
         viewed: false,
         incomeInstrument,
         incomeAccount: toAcc.id,
-        income: amount,
+        income: resolvedIncome,
         incomeBankID: null as string | null,
         outcomeInstrument,
         outcomeAccount: fromAcc.id,
-        outcome: amount,
+        outcome: resolvedOutcome,
         outcomeBankID: null as string | null,
         opIncome: null as number | null,
         opIncomeInstrument: null as number | null,
@@ -367,11 +399,17 @@ export function registerTransactionTools(
         state.serverTimestamp = resp.serverTimestamp;
         state.transactions.push(transaction);
 
+        const fromInstr = state.getInstrument(outcomeInstrument);
+        const toInstr = state.getInstrument(incomeInstrument);
+        const amountLine = isCrossCurrency
+          ? `- From amount: ${resolvedOutcome} ${fromInstr?.shortTitle ?? ""}\n- To amount: ${resolvedIncome} ${toInstr?.shortTitle ?? ""}`
+          : `- Amount: ${resolvedOutcome} ${fromInstr?.shortTitle ?? ""}`;
+
         return {
           content: [
             {
               type: "text" as const,
-              text: `Transfer added:\n- From: ${fromAcc.title}\n- To: ${toAcc.title}\n- Amount: ${amount}\n- Date: ${date}\n- ID: ${transaction.id}`,
+              text: `Transfer added:\n- From: ${fromAcc.title}\n- To: ${toAcc.title}\n${amountLine}\n- Date: ${date}\n- ID: ${transaction.id}`,
             },
           ],
         };
@@ -469,7 +507,13 @@ export function registerTransactionTools(
             (a) => a.id === t.incomeAccount
           );
           type = "transfer";
-          amountStr = `${t.outcome} (${from?.title ?? "?"} → ${to?.title ?? "?"})`;
+          if (t.outcomeInstrument !== t.incomeInstrument) {
+            const fromInstr = state.getInstrument(t.outcomeInstrument);
+            const toInstr = state.getInstrument(t.incomeInstrument);
+            amountStr = `${t.outcome} ${fromInstr?.shortTitle ?? ""} → ${t.income} ${toInstr?.shortTitle ?? ""} (${from?.title ?? "?"} → ${to?.title ?? "?"})`;
+          } else {
+            amountStr = `${t.outcome} (${from?.title ?? "?"} → ${to?.title ?? "?"})`;
+          }
         } else if (isExpense) {
           const instr = state.getInstrument(t.outcomeInstrument);
           type = "expense";
