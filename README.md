@@ -22,41 +22,20 @@ MCP server for [ZenMoney](https://zenmoney.ru) — access your personal finance 
 - A [ZenMoney](https://zenmoney.ru) account
 - API token from [zerro.app/token](https://zerro.app/token)
 
-## Installation
+## Quick start
 
-```bash
-git clone https://github.com/a-tarasoff/zenmoney-mcp.git
-cd zenmoney-mcp
-npm install
-npm run build
-```
-
-## Configuration
-
-1. Copy the example environment file and add your token:
-
-```bash
-cp .env.example .env
-```
-
-2. Edit `.env` and paste your token:
-
-```
-ZENMONEY_TOKEN=your_token_here
-```
-
-Get your token at [zerro.app/token](https://zerro.app/token).
+No cloning or building needed — just add to your MCP client config:
 
 ### Claude Desktop
 
-Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
 
 ```json
 {
   "mcpServers": {
     "zenmoney": {
-      "command": "node",
-      "args": ["/absolute/path/to/zenmoney-mcp/build/index.js"],
+      "command": "npx",
+      "args": ["-y", "zenmoney-mcp"],
       "env": {
         "ZENMONEY_TOKEN": "your_token_here"
       }
@@ -67,20 +46,38 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 
 ### Cursor
 
-Add to `.cursor/mcp.json` in your project or global config:
+Add to `.cursor/mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "zenmoney": {
-      "command": "node",
-      "args": ["/absolute/path/to/zenmoney-mcp/build/index.js"],
+      "command": "npx",
+      "args": ["-y", "zenmoney-mcp"],
       "env": {
         "ZENMONEY_TOKEN": "your_token_here"
       }
     }
   }
 }
+```
+
+### Claude Code
+
+```bash
+claude mcp add zenmoney -- npx -y zenmoney-mcp
+```
+
+Replace `your_token_here` with your token from [zerro.app/token](https://zerro.app/token).
+
+### From source
+
+```bash
+git clone https://github.com/a-tarasoff/zenmoney-mcp.git
+cd zenmoney-mcp
+npm install
+npm run build
+cp .env.example .env  # add your token
 ```
 
 ## Usage
