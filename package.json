@@ -1,0 +1,39 @@
+{
+  "name": "zenmoney-mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "zenmoney-mcp": "./build/index.js"
+  },
+  "files": [
+    "build",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "start": "node build/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "description": "MCP server for ZenMoney personal finance app",
+  "main": "build/index.js",
+  "keywords": ["mcp", "zenmoney", "finance", "personal-finance", "claude", "ai"],
+  "author": "Artem Tarasov (https://github.com/a-tarasoff)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/a-tarasoff/zenmoney-mcp.git"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.3",
+    "dotenv": "^17.2.3",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.1.0",
+    "typescript": "^5.9.3"
+  }
+}
