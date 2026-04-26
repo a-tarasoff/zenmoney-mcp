@@ -86,7 +86,7 @@ Once configured, start a conversation and ask your AI client to:
 
 1. **Sync first** — "Sync my ZenMoney data"
 2. **Browse** — "Show me my accounts", "List my categories"
-3. **Query** — "Show expenses for the last 7 days", "How much did I spend on groceries?"
+3. **Query** — "Show expenses for the last 7 days", "List transactions from January 1–31", "How much did I spend on groceries?"
 4. **Add transactions** — "Add a 500 RUB expense for coffee today"
 5. **Transfer** — "Transfer 1000 USD from Checking to Euro Card, received 920 EUR"
 

@@ -449,7 +449,7 @@ describe("list_transactions", () => {
     ];
     await setup({ transactions: txs });
 
-    const result = await callTool("list_transactions", { days: 30 });
+    const result = await callTool("list_transactions", { start_date: "2026-03-01", end_date: "2026-03-31" });
     const text = getTextContent(result);
 
     expect(text).toContain("expense");
@@ -475,7 +475,7 @@ describe("list_transactions", () => {
     ];
     await setup({ transactions: txs });
 
-    const result = await callTool("list_transactions", { days: 30 });
+    const result = await callTool("list_transactions", { start_date: "2026-03-01", end_date: "2026-03-31" });
     const text = getTextContent(result);
     expect(text).toContain("transfer");
     expect(text).toContain("Checking");
@@ -497,7 +497,7 @@ describe("list_transactions", () => {
     ];
     await setup({ transactions: txs });
 
-    const result = await callTool("list_transactions", { days: 30 });
+    const result = await callTool("list_transactions", { start_date: "2026-03-01", end_date: "2026-03-31" });
     const text = getTextContent(result);
     expect(text).toContain("transfer");
     expect(text).toContain("1000 USD");
@@ -524,7 +524,8 @@ describe("list_transactions", () => {
     await setup({ transactions: txs });
 
     const result = await callTool("list_transactions", {
-      days: 30,
+      start_date: "2026-03-01",
+      end_date: "2026-03-31",
       account: "Savings",
     });
     const text = getTextContent(result);
@@ -554,7 +555,8 @@ describe("list_transactions", () => {
     await setup({ transactions: txs });
 
     const result = await callTool("list_transactions", {
-      days: 30,
+      start_date: "2026-03-01",
+      end_date: "2026-03-31",
       category: "Food",
     });
     const text = getTextContent(result);
@@ -569,7 +571,7 @@ describe("list_transactions", () => {
     ];
     await setup({ transactions: txs });
 
-    const result = await callTool("list_transactions", { days: 30 });
+    const result = await callTool("list_transactions", { start_date: "2026-03-01", end_date: "2026-03-31" });
     const text = getTextContent(result);
     // Only the recent one should show
     expect(text).toContain("Transactions (1)");
@@ -585,20 +587,113 @@ describe("list_transactions", () => {
     );
     await setup({ transactions: txs });
 
-    const result = await callTool("list_transactions", { days: 30, limit: 3 });
+    const result = await callTool("list_transactions", {
+      start_date: "2026-03-01",
+      end_date: "2026-03-31",
+      limit: 3,
+    });
     const text = getTextContent(result);
     expect(text).toContain("Transactions (3)");
   });
 
   it("should show empty message when no transactions match", async () => {
     await setup({ transactions: [] });
-    const result = await callTool("list_transactions", { days: 30 });
+    const result = await callTool("list_transactions", { start_date: "2026-03-01", end_date: "2026-03-31" });
     expect(getTextContent(result)).toContain("No transactions found");
   });
 
   it("should error when not synced", async () => {
     await setup({ synced: false });
-    const result = await callTool("list_transactions", { days: 30 });
+    const result = await callTool("list_transactions", { start_date: "2026-03-01", end_date: "2026-03-31" });
+    expect(result.isError).toBe(true);
+  });
+
+  it("should filter by explicit start_date and end_date range", async () => {
+    const txs = [
+      makeTransaction({ id: "tx-before", outcome: 10, date: "2025-12-31" }),
+      makeTransaction({ id: "tx-jan-start", outcome: 20, date: "2026-01-01" }),
+      makeTransaction({ id: "tx-jan-mid", outcome: 30, date: "2026-01-15" }),
+      makeTransaction({ id: "tx-jan-end", outcome: 40, date: "2026-01-31" }),
+      makeTransaction({ id: "tx-after", outcome: 50, date: "2026-02-01" }),
+    ];
+    await setup({ transactions: txs });
+
+    const result = await callTool("list_transactions", {
+      start_date: "2026-01-01",
+      end_date: "2026-01-31",
+    });
+    const text = getTextContent(result);
+    expect(text).toContain("Transactions (3)");
+    expect(text).toContain("2026-01-01");
+    expect(text).toContain("2026-01-15");
+    expect(text).toContain("2026-01-31");
+    expect(text).not.toContain("2025-12-31");
+    expect(text).not.toContain("2026-02-01");
+  });
+
+  it("should support start_date alone (defaults end to today)", async () => {
+    const txs = [
+      makeTransaction({ id: "tx-old", outcome: 10, date: "2025-06-01" }),
+      makeTransaction({ id: "tx-new", outcome: 20, date: "2026-04-01" }),
+    ];
+    await setup({ transactions: txs });
+
+    const result = await callTool("list_transactions", {
+      start_date: "2026-01-01",
+    });
+    const text = getTextContent(result);
+    expect(text).toContain("Transactions (1)");
+    expect(text).toContain("2026-04-01");
+  });
+
+  it("should support end_date alone (defaults start to unbounded)", async () => {
+    const txs = [
+      makeTransaction({ id: "tx-old", outcome: 10, date: "2024-06-01" }),
+      makeTransaction({ id: "tx-mid", outcome: 20, date: "2025-06-01" }),
+      makeTransaction({ id: "tx-future", outcome: 30, date: "2030-01-01" }),
+    ];
+    await setup({ transactions: txs });
+
+    const result = await callTool("list_transactions", {
+      end_date: "2025-12-31",
+    });
+    const text = getTextContent(result);
+    expect(text).toContain("Transactions (2)");
+    expect(text).not.toContain("2030-01-01");
+  });
+
+  it("should ignore days when start_date or end_date is provided", async () => {
+    const txs = [
+      makeTransaction({ id: "tx-old", outcome: 10, date: "2025-01-15" }),
+    ];
+    await setup({ transactions: txs });
+
+    // days=30 from 2026-04-27 would exclude 2025-01-15, but explicit range includes it
+    const result = await callTool("list_transactions", {
+      days: 30,
+      start_date: "2025-01-01",
+      end_date: "2025-01-31",
+    });
+    const text = getTextContent(result);
+    expect(text).toContain("Transactions (1)");
+    expect(text).toContain("2025-01-15");
+  });
+
+  it("should error when start_date is after end_date", async () => {
+    await setup({ transactions: [] });
+    const result = await callTool("list_transactions", {
+      start_date: "2026-02-01",
+      end_date: "2026-01-01",
+    });
+    expect(result.isError).toBe(true);
+    expect(getTextContent(result)).toContain("must be on or before");
+  });
+
+  it("should reject malformed date strings", async () => {
+    await setup({ transactions: [] });
+    const result = await callTool("list_transactions", {
+      start_date: "01/15/2026",
+    });
     expect(result.isError).toBe(true);
   });
 });

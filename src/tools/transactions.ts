@@ -429,13 +429,23 @@ export function registerTransactionTools(
 
   server.tool(
     "list_transactions",
-    "List recent transactions. Sync must be done first.",
+    "List transactions. By default returns the last 30 days; pass start_date/end_date for an arbitrary period (e.g. Jan 1–31). Sync must be done first.",
     {
       days: z
         .number()
         .optional()
         .default(30)
-        .describe("Number of days to look back (default 30)"),
+        .describe("Number of days to look back from today (default 30). Ignored if start_date or end_date is provided."),
+      start_date: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format")
+        .optional()
+        .describe("Start of date range (inclusive), YYYY-MM-DD. If omitted while end_date is set, defaults to unbounded."),
+      end_date: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format")
+        .optional()
+        .describe("End of date range (inclusive), YYYY-MM-DD. If omitted while start_date is set, defaults to today."),
       account: z
         .string()
         .optional()
@@ -450,7 +460,7 @@ export function registerTransactionTools(
         .default(50)
         .describe("Max number of transactions to return (default 50)"),
     },
-    async ({ days, account, category, limit }) => {
+    async ({ days, start_date, end_date, account, category, limit }) => {
       if (!state.isSynced) {
         return {
           content: [
@@ -463,11 +473,33 @@ export function registerTransactionTools(
         };
       }
 
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - days);
-      const cutoffStr = cutoff.toISOString().slice(0, 10);
+      let lowerBound: string;
+      let upperBound: string | null;
 
-      let filtered = state.transactions.filter((t) => t.date >= cutoffStr);
+      if (start_date || end_date) {
+        lowerBound = start_date ?? "0000-01-01";
+        upperBound = end_date ?? new Date().toISOString().slice(0, 10);
+        if (start_date && end_date && start_date > end_date) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `start_date (${start_date}) must be on or before end_date (${end_date}).`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      } else {
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - days);
+        lowerBound = cutoff.toISOString().slice(0, 10);
+        upperBound = null;
+      }
+
+      let filtered = state.transactions.filter(
+        (t) => t.date >= lowerBound && (upperBound === null || t.date <= upperBound)
+      );
 
       if (account) {
         const acc = resolveAccount(state, account);
