@@ -70,6 +70,18 @@ claude mcp add zenmoney -- npx -y zenmoney-mcp
 
 Replace `your_token_here` with your token from [zerro.app/token](https://zerro.app/token).
 
+### Claude Desktop (MCPB bundle)
+
+If you prefer a one-click install without editing JSON, build a `.mcpb` bundle and drag it into Claude Desktop → Settings → Extensions:
+
+```bash
+npm install
+npm run pack:mcpb
+# → dist/zenmoney-mcp-<version>.mcpb
+```
+
+On install, Claude Desktop will prompt for your ZenMoney token (stored in the OS keychain).
+
 ### From source
 
 ```bash
