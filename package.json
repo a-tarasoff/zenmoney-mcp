@@ -1,9 +1,9 @@
 {
   "name": "zenmoney-mcp",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "bin": {
-    "zenmoney-mcp": "./build/index.js"
+    "zenmoney-mcp": "build/index.js"
   },
   "files": [
     "build",
@@ -28,11 +28,11 @@
     "claude",
     "ai"
   ],
-  "author": "Artem Tarasov (https://github.com/a-tarasoff)",
+  "author": "Artem Tarasov (https://github.com/artarasov)",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/a-tarasoff/zenmoney-mcp.git"
+    "url": "git+https://github.com/artarasov/zenmoney-mcp.git"
   },
   "engines": {
     "node": ">=18"

@@ -24,7 +24,7 @@ const state = new ZenState(api);
 
 const server = new McpServer({
   name: "zenmoney-mcp",
-  version: "0.1.0",
+  version: "0.3.1",
 });
 
 registerSyncTools(server, state);
