@@ -1,0 +1,57 @@
+{
+  "manifest_version": "0.3",
+  "name": "zenmoney-mcp",
+  "display_name": "ZenMoney",
+  "version": "0.3.0",
+  "description": "Access ZenMoney personal finance data — accounts, categories, transactions, transfers.",
+  "long_description": "MCP server for ZenMoney. Sync accounts, browse categories and merchants, list/filter transactions over arbitrary date ranges, add expenses/income, transfer between accounts (including cross-currency), and auto-suggest categories for known payees.",
+  "author": {
+    "name": "Artem Tarasov",
+    "url": "https://github.com/artarasov"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/artarasov/zenmoney-mcp"
+  },
+  "homepage": "https://github.com/artarasov/zenmoney-mcp",
+  "license": "MIT",
+  "keywords": ["finance", "zenmoney", "personal-finance", "budgeting"],
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  },
+  "server": {
+    "type": "node",
+    "entry_point": "build/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/build/index.js"],
+      "env": {
+        "ZENMONEY_TOKEN": "${user_config.zenmoney_token}"
+      }
+    }
+  },
+  "user_config": {
+    "zenmoney_token": {
+      "type": "string",
+      "title": "ZenMoney API Token",
+      "description": "Get your token from https://zerro.app/token",
+      "sensitive": true,
+      "required": true
+    }
+  },
+  "tools": [
+    { "name": "sync_data", "description": "Sync data with ZenMoney. Run first." },
+    { "name": "list_accounts", "description": "List wallets, cards, and cash accounts." },
+    { "name": "list_categories", "description": "List expense/income categories with hierarchy." },
+    { "name": "list_merchants", "description": "List known merchants/payees." },
+    { "name": "list_transactions", "description": "List and filter transactions (supports arbitrary date ranges)." },
+    { "name": "add_expense", "description": "Add an expense transaction." },
+    { "name": "add_income", "description": "Add an income transaction." },
+    { "name": "add_transfer", "description": "Transfer between accounts, including cross-currency." },
+    { "name": "suggest_category", "description": "Suggest a category for a given payee." }
+  ]
+}

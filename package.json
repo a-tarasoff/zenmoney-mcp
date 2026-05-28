@@ -14,7 +14,8 @@
     "build": "tsc",
     "start": "node build/index.js",
     "test": "vitest run",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "pack:mcpb": "node scripts/pack-mcpb.mjs"
   },
   "mcpName": "io.github.a-tarasoff/zenmoney-mcp",
   "description": "MCP server for ZenMoney personal finance app",
@@ -37,11 +38,12 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.25.3",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "dotenv": "^17.2.3",
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@anthropic-ai/mcpb": "2.1.2",
     "@types/node": "^25.1.0",
     "@vitest/coverage-v8": "^4.1.2",
     "typescript": "^5.9.3",
