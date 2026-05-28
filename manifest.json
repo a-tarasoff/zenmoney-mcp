@@ -7,13 +7,13 @@
   "long_description": "MCP server for ZenMoney. Sync accounts, browse categories and merchants, list/filter transactions over arbitrary date ranges, add expenses/income, transfer between accounts (including cross-currency), and auto-suggest categories for known payees.",
   "author": {
     "name": "Artem Tarasov",
-    "url": "https://github.com/a-tarasoff"
+    "url": "https://github.com/artarasov"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/a-tarasoff/zenmoney-mcp"
+    "url": "https://github.com/artarasov/zenmoney-mcp"
   },
-  "homepage": "https://github.com/a-tarasoff/zenmoney-mcp",
+  "homepage": "https://github.com/artarasov/zenmoney-mcp",
   "license": "MIT",
   "keywords": ["finance", "zenmoney", "personal-finance", "budgeting"],
   "compatibility": {
