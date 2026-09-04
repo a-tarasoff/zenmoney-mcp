@@ -86,7 +86,7 @@ On install, Claude Desktop will prompt for your ZenMoney token (stored in the OS
 ### From source
 
 ```bash
-git clone https://github.com/a-tarasoff/zenmoney-mcp.git
+git clone https://github.com/artarasov/zenmoney-mcp.git
 cd zenmoney-mcp
 npm install
 npm run build

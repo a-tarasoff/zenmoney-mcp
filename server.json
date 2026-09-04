@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.a-tarasoff/zenmoney-mcp",
+  "name": "io.github.artarasov/zenmoney-mcp",
   "description": "MCP server for ZenMoney personal finance app",
   "repository": {
     "url": "https://github.com/artarasov/zenmoney-mcp",

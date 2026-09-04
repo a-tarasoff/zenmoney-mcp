@@ -15,9 +15,10 @@
     "start": "node build/index.js",
     "test": "vitest run",
     "prepublishOnly": "npm run build",
-    "pack:mcpb": "node scripts/pack-mcpb.mjs"
+    "pack:mcpb": "node scripts/pack-mcpb.mjs",
+    "publish:mcp": "node scripts/publish-mcp.mjs"
   },
-  "mcpName": "io.github.a-tarasoff/zenmoney-mcp",
+  "mcpName": "io.github.artarasov/zenmoney-mcp",
   "description": "MCP server for ZenMoney personal finance app",
   "main": "build/index.js",
   "keywords": [
