@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "zenmoney-mcp",
   "display_name": "ZenMoney",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Access ZenMoney personal finance data — accounts, categories, transactions, transfers.",
   "long_description": "MCP server for ZenMoney. Sync accounts, browse categories and merchants, list/filter transactions over arbitrary date ranges, add expenses/income, transfer between accounts (including cross-currency), edit existing transactions (recategorize one or many at once), and auto-suggest categories for known payees.",
   "author": {
