@@ -330,6 +330,34 @@ describe("ZenState", () => {
       expect(state.findMerchantByName("nonexistent")).toBeUndefined();
     });
 
+    it("findTransaction should find by id", async () => {
+      const tx = makeTransaction({ id: "tx-1", outcome: 10 });
+      state.upsertTransaction(tx);
+      expect(state.findTransaction("tx-1")).toBe(tx);
+      expect(state.findTransaction("nonexistent")).toBeUndefined();
+    });
+
+    it("upsertTransaction should replace an existing transaction in place", () => {
+      const first = makeTransaction({ id: "tx-1", outcome: 10 });
+      const second = makeTransaction({ id: "tx-2", outcome: 20 });
+      state.upsertTransaction(first);
+      state.upsertTransaction(second);
+
+      const updated = { ...first, outcome: 99 };
+      state.upsertTransaction(updated);
+
+      expect(state.transactions).toHaveLength(2);
+      expect(state.transactions[0]).toBe(updated);
+      expect(state.findTransaction("tx-1")!.outcome).toBe(99);
+      expect(state.findTransaction("tx-2")!.outcome).toBe(20);
+    });
+
+    it("upsertTransaction should append an unknown transaction", () => {
+      expect(state.transactions).toHaveLength(0);
+      state.upsertTransaction(makeTransaction({ id: "tx-new", outcome: 5 }));
+      expect(state.transactions).toHaveLength(1);
+    });
+
     it("getTagHierarchy should group parent and children", () => {
       const hierarchy = state.getTagHierarchy();
       const foodGroup = hierarchy.find((h) => h.parent.id === "tag-food");

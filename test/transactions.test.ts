@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type { ZenMoneyAPI } from "../src/api.js";
+import type { Tag, ZenMoneyAPI } from "../src/api.js";
 import { ZenState } from "../src/state.js";
 import { registerTransactionTools } from "../src/tools/transactions.js";
 import {
@@ -11,6 +11,7 @@ import {
   CHECKING,
   SAVINGS,
   EURO_CARD,
+  FOOD,
 } from "./fixtures.js";
 import { getTextContent } from "./helpers.js";
 
@@ -19,9 +20,14 @@ let client: Client;
 let api: ZenMoneyAPI;
 let state: ZenState;
 
-async function setup(opts?: { synced?: boolean; transactions?: ReturnType<typeof makeTransaction>[] }) {
+async function setup(opts?: {
+  synced?: boolean;
+  transactions?: ReturnType<typeof makeTransaction>[];
+  tags?: Tag[];
+}) {
   const diffResp = makeDiffResponse({
     transaction: opts?.transactions ?? [],
+    ...(opts?.tags ? { tag: opts.tags } : {}),
   });
 
   api = {
@@ -33,6 +39,7 @@ async function setup(opts?: { synced?: boolean; transactions?: ReturnType<typeof
   if (opts?.synced !== false) {
     await state.sync();
     // Reset mock so tool calls are tracked separately
+    vi.mocked(api.diff).mockClear();
     vi.mocked(api.diff).mockResolvedValue({
       ...diffResp,
       serverTimestamp: diffResp.serverTimestamp + 1,
@@ -596,6 +603,19 @@ describe("list_transactions", () => {
     expect(text).toContain("Transactions (3)");
   });
 
+  it("should print transaction ids so they can be updated", async () => {
+    await setup({
+      transactions: [makeTransaction({ id: "tx-expense", outcome: 50, date: "2026-03-20" })],
+    });
+
+    const result = await callTool("list_transactions", {
+      start_date: "2026-03-01",
+      end_date: "2026-03-31",
+    });
+
+    expect(getTextContent(result)).toContain("id: tx-expense");
+  });
+
   it("should show empty message when no transactions match", async () => {
     await setup({ transactions: [] });
     const result = await callTool("list_transactions", { start_date: "2026-03-01", end_date: "2026-03-31" });
@@ -695,5 +715,410 @@ describe("list_transactions", () => {
       start_date: "01/15/2026",
     });
     expect(result.isError).toBe(true);
+  });
+});
+
+describe("update_transaction", () => {
+  const EXPENSE = makeTransaction({
+    id: "tx-expense",
+    outcome: 50,
+    income: 0,
+    outcomeAccount: "acc-checking",
+    incomeAccount: "acc-checking",
+    tag: ["tag-food"],
+    payee: "Grocery Store",
+    comment: "weekly shop",
+    date: "2026-03-20",
+  });
+
+  const INCOME = makeTransaction({
+    id: "tx-income",
+    outcome: 0,
+    income: 3000,
+    outcomeAccount: "acc-checking",
+    incomeAccount: "acc-checking",
+    date: "2026-03-01",
+  });
+
+  const TRANSFER = makeTransaction({
+    id: "tx-transfer",
+    outcome: 500,
+    income: 500,
+    outcomeAccount: "acc-checking",
+    incomeAccount: "acc-savings",
+    date: "2026-03-10",
+  });
+
+  function sentTransaction() {
+    const call = vi.mocked(api.diff).mock.calls.at(-1)![0] as any;
+    return call.transaction[0];
+  }
+
+  it("should change the category by name", async () => {
+    await setup({ transactions: [EXPENSE] });
+
+    const result = await callTool("update_transaction", {
+      id: "tx-expense",
+      category: "Restaurants",
+    });
+
+    const text = getTextContent(result);
+    expect(result.isError).toBeFalsy();
+    expect(text).toContain("Transaction updated");
+    expect(text).toContain("category: Food → Restaurants");
+    expect(sentTransaction()).toMatchObject({
+      id: "tx-expense",
+      tag: ["tag-restaurants"],
+      outcome: 50,
+      date: "2026-03-20",
+      payee: "Grocery Store",
+    });
+  });
+
+  it("should change the category by UUID", async () => {
+    await setup({ transactions: [EXPENSE] });
+
+    await callTool("update_transaction", {
+      id: "tx-expense",
+      category: "tag-salary",
+    });
+
+    expect(sentTransaction().tag).toEqual(["tag-salary"]);
+  });
+
+  it("should match the category case-insensitively", async () => {
+    await setup({ transactions: [EXPENSE] });
+
+    await callTool("update_transaction", { id: "tx-expense", category: "restaurants" });
+
+    expect(sentTransaction().tag).toEqual(["tag-restaurants"]);
+  });
+
+  it("should prefer an exact category title over a substring match", async () => {
+    const CAR: Tag = { ...FOOD, id: "tag-car", title: "Car" };
+    const CARSHARING: Tag = { ...FOOD, id: "tag-carsharing", title: "Carsharing" };
+    await setup({ transactions: [EXPENSE], tags: [CAR, CARSHARING] });
+
+    await callTool("update_transaction", { id: "tx-expense", category: "Car" });
+
+    expect(sentTransaction().tag).toEqual(["tag-car"]);
+  });
+
+  it("should accept several categories", async () => {
+    await setup({ transactions: [EXPENSE] });
+
+    await callTool("update_transaction", {
+      id: "tx-expense",
+      category: ["Restaurants", "Salary"],
+    });
+
+    expect(sentTransaction().tag).toEqual(["tag-restaurants", "tag-salary"]);
+  });
+
+  it("should clear the category on an empty string", async () => {
+    await setup({ transactions: [EXPENSE] });
+
+    const result = await callTool("update_transaction", {
+      id: "tx-expense",
+      category: "",
+    });
+
+    expect(getTextContent(result)).toContain("category: Food → none");
+    expect(sentTransaction().tag).toBeNull();
+  });
+
+  it("should clear the category on an empty array", async () => {
+    await setup({ transactions: [EXPENSE] });
+
+    await callTool("update_transaction", { id: "tx-expense", category: [] });
+
+    expect(sentTransaction().tag).toBeNull();
+  });
+
+  it("should recategorize several transactions in one request", async () => {
+    await setup({ transactions: [EXPENSE, INCOME] });
+
+    const result = await callTool("update_transaction", {
+      id: ["tx-expense", "tx-income"],
+      category: "Restaurants",
+    });
+
+    const text = getTextContent(result);
+    expect(text).toContain("2 transactions updated");
+    expect(api.diff).toHaveBeenCalledTimes(1);
+    const sent = (vi.mocked(api.diff).mock.calls.at(-1)![0] as any).transaction;
+    expect(sent).toHaveLength(2);
+    expect(sent.map((t: any) => t.id)).toEqual(["tx-expense", "tx-income"]);
+    expect(sent.every((t: any) => t.tag[0] === "tag-restaurants")).toBe(true);
+  });
+
+  it("should reject an ambiguous category instead of guessing", async () => {
+    await setup({ transactions: [EXPENSE] });
+
+    const result = await callTool("update_transaction", {
+      id: "tx-expense",
+      category: "a",
+    });
+
+    expect(result.isError).toBe(true);
+    expect(getTextContent(result)).toContain("ambiguous");
+    expect(api.diff).not.toHaveBeenCalled();
+  });
+
+  it("should error on an unknown category", async () => {
+    await setup({ transactions: [EXPENSE] });
+
+    const result = await callTool("update_transaction", {
+      id: "tx-expense",
+      category: "Bicycles",
+    });
+
+    expect(result.isError).toBe(true);
+    expect(getTextContent(result)).toContain('Category "Bicycles" not found');
+    expect(api.diff).not.toHaveBeenCalled();
+  });
+
+  it("should error on an unknown transaction id without sending anything", async () => {
+    await setup({ transactions: [EXPENSE] });
+
+    const result = await callTool("update_transaction", {
+      id: ["tx-expense", "tx-missing"],
+      category: "Restaurants",
+    });
+
+    expect(result.isError).toBe(true);
+    expect(getTextContent(result)).toContain("tx-missing");
+    expect(api.diff).not.toHaveBeenCalled();
+  });
+
+  it("should update local state and bump changed", async () => {
+    await setup({ transactions: [EXPENSE] });
+
+    await callTool("update_transaction", { id: "tx-expense", category: "Restaurants" });
+
+    const stored = state.findTransaction("tx-expense")!;
+    expect(stored.tag).toEqual(["tag-restaurants"]);
+    expect(stored.changed).toBeGreaterThan(EXPENSE.changed);
+    expect(state.transactions).toHaveLength(1);
+  });
+
+  it("should change the amount of an expense", async () => {
+    await setup({ transactions: [EXPENSE] });
+
+    const result = await callTool("update_transaction", { id: "tx-expense", amount: 75 });
+
+    expect(getTextContent(result)).toContain("outcome: 50 USD → 75 USD");
+    expect(sentTransaction()).toMatchObject({ outcome: 75, income: 0 });
+  });
+
+  it("should change the amount of an income", async () => {
+    await setup({ transactions: [INCOME] });
+
+    await callTool("update_transaction", { id: "tx-income", amount: 3500 });
+
+    expect(sentTransaction()).toMatchObject({ income: 3500, outcome: 0 });
+  });
+
+  it("should reject amount on a transfer", async () => {
+    await setup({ transactions: [TRANSFER] });
+
+    const result = await callTool("update_transaction", { id: "tx-transfer", amount: 600 });
+
+    expect(result.isError).toBe(true);
+    expect(getTextContent(result)).toContain("outcome_amount");
+    expect(api.diff).not.toHaveBeenCalled();
+  });
+
+  it("should change both sides of a transfer", async () => {
+    await setup({ transactions: [TRANSFER] });
+
+    await callTool("update_transaction", {
+      id: "tx-transfer",
+      outcome_amount: 600,
+      income_amount: 550,
+    });
+
+    expect(sentTransaction()).toMatchObject({ outcome: 600, income: 550 });
+  });
+
+  it("should change date, payee and comment", async () => {
+    await setup({ transactions: [EXPENSE] });
+
+    const result = await callTool("update_transaction", {
+      id: "tx-expense",
+      date: "2026-03-25",
+      payee: "Corner Cafe",
+      comment: "lunch",
+    });
+
+    const text = getTextContent(result);
+    expect(text).toContain("date: 2026-03-20 → 2026-03-25");
+    expect(text).toContain("payee: Grocery Store → Corner Cafe");
+    expect(text).toContain("comment: weekly shop → lunch");
+    // Corner Cafe is a known merchant, so the link is restored
+    expect(sentTransaction()).toMatchObject({
+      date: "2026-03-25",
+      payee: "Corner Cafe",
+      merchant: "merchant-cafe",
+    });
+  });
+
+  it("should clear payee and comment on empty strings", async () => {
+    await setup({ transactions: [EXPENSE] });
+
+    await callTool("update_transaction", { id: "tx-expense", payee: "", comment: "" });
+
+    expect(sentTransaction()).toMatchObject({
+      payee: null,
+      comment: null,
+      merchant: null,
+    });
+  });
+
+  it("should move a transaction to another account and follow its currency", async () => {
+    await setup({ transactions: [EXPENSE] });
+
+    const result = await callTool("update_transaction", {
+      id: "tx-expense",
+      account: "Euro Card",
+    });
+
+    expect(getTextContent(result)).toContain("account: Checking → Euro Card");
+    expect(sentTransaction()).toMatchObject({
+      incomeAccount: EURO_CARD.id,
+      outcomeAccount: EURO_CARD.id,
+      incomeInstrument: 2,
+      outcomeInstrument: 2,
+    });
+  });
+
+  it("should reject account on a transfer", async () => {
+    await setup({ transactions: [TRANSFER] });
+
+    const result = await callTool("update_transaction", {
+      id: "tx-transfer",
+      account: "Savings",
+    });
+
+    expect(result.isError).toBe(true);
+    expect(getTextContent(result)).toContain("from_account/to_account");
+  });
+
+  it("should move one side of a transfer", async () => {
+    await setup({ transactions: [TRANSFER] });
+
+    const result = await callTool("update_transaction", {
+      id: "tx-transfer",
+      from_account: "Euro Card",
+    });
+
+    expect(getTextContent(result)).toContain("from account: Checking → Euro Card");
+    expect(sentTransaction()).toMatchObject({
+      outcomeAccount: EURO_CARD.id,
+      outcomeInstrument: 2,
+      incomeAccount: SAVINGS.id,
+    });
+  });
+
+  it("should refuse to make a transfer with a zero side", async () => {
+    await setup({ transactions: [EXPENSE] });
+
+    const result = await callTool("update_transaction", {
+      id: "tx-expense",
+      to_account: "Savings",
+    });
+
+    expect(result.isError).toBe(true);
+    expect(getTextContent(result)).toContain("zero amount on one side");
+    expect(api.diff).not.toHaveBeenCalled();
+  });
+
+  it("should turn an expense into a transfer when both sides are given", async () => {
+    await setup({ transactions: [EXPENSE] });
+
+    await callTool("update_transaction", {
+      id: "tx-expense",
+      to_account: "Savings",
+      income_amount: 50,
+    });
+
+    expect(sentTransaction()).toMatchObject({
+      outcomeAccount: CHECKING.id,
+      incomeAccount: SAVINGS.id,
+      outcome: 50,
+      income: 50,
+    });
+  });
+
+  it("should reject account together with from_account", async () => {
+    await setup({ transactions: [EXPENSE] });
+
+    const result = await callTool("update_transaction", {
+      id: "tx-expense",
+      account: "Savings",
+      from_account: "Checking",
+    });
+
+    expect(result.isError).toBe(true);
+    expect(getTextContent(result)).toContain("not both");
+  });
+
+  it("should reject amount together with outcome_amount", async () => {
+    await setup({ transactions: [EXPENSE] });
+
+    const result = await callTool("update_transaction", {
+      id: "tx-expense",
+      amount: 10,
+      outcome_amount: 20,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(getTextContent(result)).toContain("not both");
+  });
+
+  it("should error when no field is given", async () => {
+    await setup({ transactions: [EXPENSE] });
+
+    const result = await callTool("update_transaction", { id: "tx-expense" });
+
+    expect(result.isError).toBe(true);
+    expect(getTextContent(result)).toContain("Nothing to update");
+  });
+
+  it("should reject a malformed date", async () => {
+    await setup({ transactions: [EXPENSE] });
+
+    const result = await callTool("update_transaction", {
+      id: "tx-expense",
+      date: "20/03/2026",
+    });
+
+    expect(result.isError).toBe(true);
+  });
+
+  it("should error when not synced", async () => {
+    await setup({ synced: false });
+
+    const result = await callTool("update_transaction", {
+      id: "tx-expense",
+      category: "Food",
+    });
+
+    expect(result.isError).toBe(true);
+    expect(getTextContent(result)).toContain("sync_data");
+  });
+
+  it("should keep local state untouched when the API fails", async () => {
+    await setup({ transactions: [EXPENSE] });
+    vi.mocked(api.diff).mockRejectedValueOnce(new Error("network down"));
+
+    const result = await callTool("update_transaction", {
+      id: "tx-expense",
+      category: "Restaurants",
+    });
+
+    expect(result.isError).toBe(true);
+    expect(getTextContent(result)).toContain("network down");
+    expect(state.findTransaction("tx-expense")!.tag).toEqual(["tag-food"]);
   });
 });

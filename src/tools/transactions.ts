@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ZenMoneyAPI } from "../api.js";
+import type { Account, Tag, Transaction, ZenMoneyAPI } from "../api.js";
 import type { ZenState } from "../state.js";
 
 export function registerTransactionTools(
@@ -522,53 +522,7 @@ export function registerTransactionTools(
       filtered.sort((a, b) => (b.date > a.date ? 1 : -1));
       filtered = filtered.slice(0, limit);
 
-      const lines = filtered.map((t) => {
-        const isExpense = t.outcome > 0 && t.income === 0;
-        const isIncome = t.income > 0 && t.outcome === 0;
-        const isTransfer =
-          t.incomeAccount !== t.outcomeAccount;
-
-        let type = "other";
-        let amountStr = "";
-
-        if (isTransfer) {
-          const from = state.accounts.find(
-            (a) => a.id === t.outcomeAccount
-          );
-          const to = state.accounts.find(
-            (a) => a.id === t.incomeAccount
-          );
-          type = "transfer";
-          if (t.outcomeInstrument !== t.incomeInstrument) {
-            const fromInstr = state.getInstrument(t.outcomeInstrument);
-            const toInstr = state.getInstrument(t.incomeInstrument);
-            amountStr = `${t.outcome} ${fromInstr?.shortTitle ?? ""} → ${t.income} ${toInstr?.shortTitle ?? ""} (${from?.title ?? "?"} → ${to?.title ?? "?"})`;
-          } else {
-            amountStr = `${t.outcome} (${from?.title ?? "?"} → ${to?.title ?? "?"})`;
-          }
-        } else if (isExpense) {
-          const instr = state.getInstrument(t.outcomeInstrument);
-          type = "expense";
-          amountStr = `-${t.outcome} ${instr?.shortTitle ?? ""}`;
-        } else if (isIncome) {
-          const instr = state.getInstrument(t.incomeInstrument);
-          type = "income";
-          amountStr = `+${t.income} ${instr?.shortTitle ?? ""}`;
-        }
-
-        const cats = t.tag
-          ? t.tag
-              .map(
-                (id) => state.tags.find((tg) => tg.id === id)?.title ?? id
-              )
-              .join(", ")
-          : "";
-
-        const payeeStr = t.payee ?? "";
-        const commentStr = t.comment ? ` — "${t.comment}"` : "";
-
-        return `${t.date} | ${type.padEnd(8)} | ${amountStr.padEnd(20)} | ${cats.padEnd(15)} | ${payeeStr}${commentStr}`;
-      });
+      const lines = filtered.map((t) => formatTransactionLine(state, t));
 
       return {
         content: [
@@ -581,6 +535,289 @@ export function registerTransactionTools(
           },
         ],
       };
+    }
+  );
+
+  server.tool(
+    "update_transaction",
+    "Change an existing transaction: its category, amount, date, payee, comment or account. Only the fields you pass are touched. Pass a single id or a list of ids to apply the same change to several transactions at once (handy for recategorizing). Ids come from list_transactions. Sync must be done first.",
+    {
+      id: z
+        .union([z.string(), z.array(z.string())])
+        .describe("Transaction UUID, or a list of UUIDs to update together"),
+      category: z
+        .union([z.string(), z.array(z.string())])
+        .optional()
+        .describe(
+          "New category name or UUID (or several). Pass an empty string or an empty array to remove the category."
+        ),
+      amount: z
+        .number()
+        .positive()
+        .optional()
+        .describe(
+          "New amount for an expense or income. For transfers use outcome_amount/income_amount instead."
+        ),
+      outcome_amount: z
+        .number()
+        .nonnegative()
+        .optional()
+        .describe("New amount debited from the source account"),
+      income_amount: z
+        .number()
+        .nonnegative()
+        .optional()
+        .describe("New amount credited to the destination account"),
+      date: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format")
+        .optional()
+        .describe("New transaction date in YYYY-MM-DD format"),
+      payee: z
+        .string()
+        .optional()
+        .describe(
+          "New payee. Pass an empty string to clear it. The linked merchant is re-matched to the new payee."
+        ),
+      comment: z
+        .string()
+        .optional()
+        .describe("New comment. Pass an empty string to clear it."),
+      account: z
+        .string()
+        .optional()
+        .describe(
+          "Move the transaction to another account (name or UUID). Not valid for transfers — use from_account/to_account there."
+        ),
+      from_account: z
+        .string()
+        .optional()
+        .describe("New source account of a transfer (name or UUID)"),
+      to_account: z
+        .string()
+        .optional()
+        .describe("New destination account of a transfer (name or UUID)"),
+    },
+    async ({
+      id,
+      category,
+      amount,
+      outcome_amount,
+      income_amount,
+      date,
+      payee,
+      comment,
+      account,
+      from_account,
+      to_account,
+    }) => {
+      if (!state.isSynced) {
+        return toolError("Data not synced yet. Please run sync_data first.");
+      }
+
+      const ids = Array.from(
+        new Set((Array.isArray(id) ? id : [id]).map((v) => v.trim()))
+      ).filter((v) => v !== "");
+      if (ids.length === 0) {
+        return toolError("No transaction id given.");
+      }
+
+      const touchesNothing =
+        category === undefined &&
+        amount === undefined &&
+        outcome_amount === undefined &&
+        income_amount === undefined &&
+        date === undefined &&
+        payee === undefined &&
+        comment === undefined &&
+        account === undefined &&
+        from_account === undefined &&
+        to_account === undefined;
+      if (touchesNothing) {
+        return toolError(
+          "Nothing to update. Pass at least one of: category, amount, outcome_amount, income_amount, date, payee, comment, account, from_account, to_account."
+        );
+      }
+
+      if (
+        account !== undefined &&
+        (from_account !== undefined || to_account !== undefined)
+      ) {
+        return toolError(
+          "Use either 'account' (for a regular transaction) or 'from_account'/'to_account' (for a transfer), not both."
+        );
+      }
+
+      if (
+        amount !== undefined &&
+        (outcome_amount !== undefined || income_amount !== undefined)
+      ) {
+        return toolError(
+          "Use either 'amount' or 'outcome_amount'/'income_amount', not both."
+        );
+      }
+
+      const user = state.getUser();
+      if (!user) {
+        return toolError("User not found. Run sync_data first.");
+      }
+
+      let tagIds: string[] | null | undefined;
+      if (category !== undefined) {
+        const wanted = (Array.isArray(category) ? category : [category])
+          .map((c) => c.trim())
+          .filter((c) => c !== "");
+        if (wanted.length === 0) {
+          tagIds = null;
+        } else {
+          const resolved: string[] = [];
+          for (const name of wanted) {
+            const match = resolveTagStrict(state, name);
+            if ("error" in match) return toolError(match.error);
+            resolved.push(match.tag.id);
+          }
+          tagIds = resolved;
+        }
+      }
+
+      let bothAccount: Account | undefined;
+      if (account !== undefined) {
+        const acc = resolveAccount(state, account);
+        if (!acc) return toolError(accountNotFound(account));
+        bothAccount = acc;
+      }
+
+      let sourceAccount: Account | undefined;
+      if (from_account !== undefined) {
+        const acc = resolveAccount(state, from_account);
+        if (!acc) return toolError(accountNotFound(from_account));
+        sourceAccount = acc;
+      }
+
+      let targetAccount: Account | undefined;
+      if (to_account !== undefined) {
+        const acc = resolveAccount(state, to_account);
+        if (!acc) return toolError(accountNotFound(to_account));
+        targetAccount = acc;
+      }
+
+      const originals: Transaction[] = [];
+      const missing: string[] = [];
+      for (const txId of ids) {
+        const tx = state.findTransaction(txId);
+        if (tx) originals.push(tx);
+        else missing.push(txId);
+      }
+      if (missing.length > 0) {
+        return toolError(
+          `Transaction${missing.length > 1 ? "s" : ""} not found: ${missing.join(", ")}. Use list_transactions to find ids, or run sync_data if the transaction was added elsewhere.`
+        );
+      }
+
+      const now = Math.floor(Date.now() / 1000);
+      const updates: Transaction[] = [];
+
+      for (const tx of originals) {
+        const next: Transaction = { ...tx, changed: now };
+        const wasTransfer = tx.incomeAccount !== tx.outcomeAccount;
+
+        if (tagIds !== undefined) next.tag = tagIds;
+        if (date !== undefined) next.date = date;
+        if (comment !== undefined) next.comment = comment === "" ? null : comment;
+        if (payee !== undefined) {
+          next.payee = payee === "" ? null : payee;
+          const merchant = next.payee
+            ? state.merchants.find(
+                (m) => m.title.toLowerCase() === next.payee!.toLowerCase()
+              )
+            : undefined;
+          next.merchant = merchant?.id ?? null;
+        }
+
+        if (bothAccount) {
+          if (wasTransfer) {
+            return toolError(
+              `Transaction ${tx.id} is a transfer — use from_account/to_account instead of account.`
+            );
+          }
+          const instrument = bothAccount.instrument ?? user.currency ?? 1;
+          next.incomeAccount = bothAccount.id;
+          next.outcomeAccount = bothAccount.id;
+          next.incomeInstrument = instrument;
+          next.outcomeInstrument = instrument;
+        }
+        if (sourceAccount) {
+          next.outcomeAccount = sourceAccount.id;
+          next.outcomeInstrument = sourceAccount.instrument ?? user.currency ?? 1;
+        }
+        if (targetAccount) {
+          next.incomeAccount = targetAccount.id;
+          next.incomeInstrument = targetAccount.instrument ?? user.currency ?? 1;
+        }
+
+        if (amount !== undefined) {
+          if (next.incomeAccount !== next.outcomeAccount) {
+            return toolError(
+              `Transaction ${tx.id} is a transfer — use outcome_amount and/or income_amount instead of amount.`
+            );
+          }
+          if (tx.outcome > 0 && tx.income === 0) {
+            next.outcome = amount;
+          } else if (tx.income > 0 && tx.outcome === 0) {
+            next.income = amount;
+          } else {
+            return toolError(
+              `Cannot tell whether ${amount} is an expense or an income for transaction ${tx.id}. Pass outcome_amount or income_amount instead.`
+            );
+          }
+        }
+        if (outcome_amount !== undefined) next.outcome = outcome_amount;
+        if (income_amount !== undefined) next.income = income_amount;
+
+        if (
+          next.incomeAccount !== next.outcomeAccount &&
+          (next.income <= 0 || next.outcome <= 0)
+        ) {
+          return toolError(
+            `Transaction ${tx.id} would be a transfer between two accounts with a zero amount on one side. Pass both outcome_amount and income_amount.`
+          );
+        }
+
+        updates.push(next);
+      }
+
+      try {
+        const resp = await api.diff({
+          currentClientTimestamp: now,
+          serverTimestamp: state.serverTimestamp,
+          transaction: updates,
+        });
+
+        state.serverTimestamp = resp.serverTimestamp;
+        for (const next of updates) state.upsertTransaction(next);
+
+        const blocks = updates.map((next, i) => {
+          const changes = describeChanges(state, originals[i], next);
+          const detail =
+            changes.length > 0
+              ? changes.map((c) => `    ${c}`).join("\n")
+              : "    (no field actually changed)";
+          return `- ${formatTransactionLine(state, next)}\n${detail}`;
+        });
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `${updates.length === 1 ? "Transaction updated" : `${updates.length} transactions updated`}:\n\n${blocks.join("\n")}`,
+            },
+          ],
+        };
+      } catch (error) {
+        return toolError(
+          `Failed to update transaction${updates.length > 1 ? "s" : ""}: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
     }
   );
 }
@@ -597,4 +834,162 @@ function resolveTag(state: ZenState, nameOrId: string): string[] | null {
   const byName = state.findTagByName(nameOrId);
   if (byName) return [byName.id];
   return null;
+}
+
+function accountNotFound(nameOrId: string): string {
+  return `Account "${nameOrId}" not found. Use list_accounts to see available accounts.`;
+}
+
+function toolError(text: string) {
+  return {
+    content: [{ type: "text" as const, text }],
+    isError: true,
+  };
+}
+
+/**
+ * Stricter than findTagByName: an exact title wins over a substring match, and
+ * an ambiguous name is reported instead of silently resolving to the first hit.
+ * Picking the wrong category matters more when overwriting an existing one.
+ */
+function resolveTagStrict(
+  state: ZenState,
+  nameOrId: string
+): { tag: Tag } | { error: string } {
+  const byId = state.tags.find((t) => t.id === nameOrId);
+  if (byId) return { tag: byId };
+
+  const lower = nameOrId.trim().toLowerCase();
+  const exact = state.tags.filter((t) => t.title.toLowerCase() === lower);
+  if (exact.length === 1) return { tag: exact[0] };
+  if (exact.length > 1) return { error: ambiguousTag(nameOrId, exact) };
+
+  const partial = state.tags.filter((t) =>
+    t.title.toLowerCase().includes(lower)
+  );
+  if (partial.length === 1) return { tag: partial[0] };
+  if (partial.length > 1) return { error: ambiguousTag(nameOrId, partial) };
+
+  return {
+    error: `Category "${nameOrId}" not found. Use list_categories to see available categories.`,
+  };
+}
+
+function ambiguousTag(input: string, matches: Tag[]): string {
+  const list = matches.map((t) => `${t.title} (${t.id})`).join(", ");
+  return `Category "${input}" is ambiguous — it matches: ${list}. Use the exact title or the category id.`;
+}
+
+function tagTitles(state: ZenState, ids: string[] | null): string {
+  if (!ids || ids.length === 0) return "none";
+  return ids
+    .map((id) => state.tags.find((t) => t.id === id)?.title ?? id)
+    .join(", ");
+}
+
+function accountTitle(state: ZenState, id: string): string {
+  return state.accounts.find((a) => a.id === id)?.title ?? id;
+}
+
+function currencyOf(state: ZenState, instrument: number): string {
+  return state.getInstrument(instrument)?.shortTitle ?? "";
+}
+
+function formatTransactionLine(state: ZenState, t: Transaction): string {
+  const isExpense = t.outcome > 0 && t.income === 0;
+  const isIncome = t.income > 0 && t.outcome === 0;
+  const isTransfer = t.incomeAccount !== t.outcomeAccount;
+
+  let type = "other";
+  let amountStr = "";
+
+  if (isTransfer) {
+    const from = accountTitle(state, t.outcomeAccount);
+    const to = accountTitle(state, t.incomeAccount);
+    type = "transfer";
+    if (t.outcomeInstrument !== t.incomeInstrument) {
+      amountStr = `${t.outcome} ${currencyOf(state, t.outcomeInstrument)} → ${t.income} ${currencyOf(state, t.incomeInstrument)} (${from} → ${to})`;
+    } else {
+      amountStr = `${t.outcome} (${from} → ${to})`;
+    }
+  } else if (isExpense) {
+    type = "expense";
+    amountStr = `-${t.outcome} ${currencyOf(state, t.outcomeInstrument)}`;
+  } else if (isIncome) {
+    type = "income";
+    amountStr = `+${t.income} ${currencyOf(state, t.incomeInstrument)}`;
+  }
+
+  const cats = t.tag
+    ? t.tag.map((id) => state.tags.find((tg) => tg.id === id)?.title ?? id).join(", ")
+    : "";
+  const payeeStr = t.payee ?? "";
+  const commentStr = t.comment ? ` — "${t.comment}"` : "";
+
+  return `${t.date} | ${type.padEnd(8)} | ${amountStr.padEnd(20)} | ${cats.padEnd(15)} | ${payeeStr}${commentStr} | id: ${t.id}`;
+}
+
+function describeChanges(
+  state: ZenState,
+  before: Transaction,
+  after: Transaction
+): string[] {
+  const lines: string[] = [];
+
+  const catsBefore = tagTitles(state, before.tag);
+  const catsAfter = tagTitles(state, after.tag);
+  if (catsBefore !== catsAfter) {
+    lines.push(`category: ${catsBefore} → ${catsAfter}`);
+  }
+
+  if (before.date !== after.date) {
+    lines.push(`date: ${before.date} → ${after.date}`);
+  }
+
+  const wasSingleAccount = before.incomeAccount === before.outcomeAccount;
+  const isSingleAccount = after.incomeAccount === after.outcomeAccount;
+  if (wasSingleAccount && isSingleAccount) {
+    if (before.outcomeAccount !== after.outcomeAccount) {
+      lines.push(
+        `account: ${accountTitle(state, before.outcomeAccount)} → ${accountTitle(state, after.outcomeAccount)}`
+      );
+    }
+  } else {
+    if (before.outcomeAccount !== after.outcomeAccount) {
+      lines.push(
+        `from account: ${accountTitle(state, before.outcomeAccount)} → ${accountTitle(state, after.outcomeAccount)}`
+      );
+    }
+    if (before.incomeAccount !== after.incomeAccount) {
+      lines.push(
+        `to account: ${accountTitle(state, before.incomeAccount)} → ${accountTitle(state, after.incomeAccount)}`
+      );
+    }
+  }
+
+  if (
+    before.outcome !== after.outcome ||
+    before.outcomeInstrument !== after.outcomeInstrument
+  ) {
+    lines.push(
+      `outcome: ${before.outcome} ${currencyOf(state, before.outcomeInstrument)} → ${after.outcome} ${currencyOf(state, after.outcomeInstrument)}`
+    );
+  }
+  if (
+    before.income !== after.income ||
+    before.incomeInstrument !== after.incomeInstrument
+  ) {
+    lines.push(
+      `income: ${before.income} ${currencyOf(state, before.incomeInstrument)} → ${after.income} ${currencyOf(state, after.incomeInstrument)}`
+    );
+  }
+
+  if (before.payee !== after.payee) {
+    lines.push(`payee: ${before.payee ?? "none"} → ${after.payee ?? "none"}`);
+  }
+  if (before.comment !== after.comment) {
+    lines.push(`comment: ${before.comment ?? "none"} → ${after.comment ?? "none"}`);
+  }
+
+  return lines;
 }

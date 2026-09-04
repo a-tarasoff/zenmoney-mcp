@@ -4,7 +4,7 @@
   "display_name": "ZenMoney",
   "version": "0.3.1",
   "description": "Access ZenMoney personal finance data — accounts, categories, transactions, transfers.",
-  "long_description": "MCP server for ZenMoney. Sync accounts, browse categories and merchants, list/filter transactions over arbitrary date ranges, add expenses/income, transfer between accounts (including cross-currency), and auto-suggest categories for known payees.",
+  "long_description": "MCP server for ZenMoney. Sync accounts, browse categories and merchants, list/filter transactions over arbitrary date ranges, add expenses/income, transfer between accounts (including cross-currency), edit existing transactions (recategorize one or many at once), and auto-suggest categories for known payees.",
   "author": {
     "name": "Artem Tarasov",
     "url": "https://github.com/artarasov"
@@ -52,6 +52,7 @@
     { "name": "add_expense", "description": "Add an expense transaction." },
     { "name": "add_income", "description": "Add an income transaction." },
     { "name": "add_transfer", "description": "Transfer between accounts, including cross-currency." },
+    { "name": "update_transaction", "description": "Change an existing transaction: category, amount, date, payee, comment or account." },
     { "name": "suggest_category", "description": "Suggest a category for a given payee." }
   ]
 }

@@ -141,6 +141,19 @@ export class ZenState {
     return this.users.find((u) => u.parent === null) ?? this.users[0];
   }
 
+  findTransaction(id: string): Transaction | undefined {
+    return this.transactions.find((t) => t.id === id);
+  }
+
+  upsertTransaction(tx: Transaction): void {
+    const idx = this.transactions.findIndex((t) => t.id === tx.id);
+    if (idx >= 0) {
+      this.transactions[idx] = tx;
+    } else {
+      this.transactions.push(tx);
+    }
+  }
+
   findAccountByName(name: string): Account | undefined {
     const lower = name.toLowerCase();
     return this.accounts.find(
